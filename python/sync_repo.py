@@ -10,6 +10,7 @@ This is a script to synchronise the git repo to the server
 import fnmatch
 import os
 import configparser
+from stat import S_ISDIR
 import warnings
 
 import paramiko
@@ -93,15 +94,47 @@ class SyncRepo:
         self._remotepath = cf.get("DEFAULT", "remotepath")
         self._localpath = cf.get("DEFAULT", "localpath")
 
+    def _make_dir_remote_recursively(self, path):
+        if sftp_file_exist(self._sftp, path):
+            return
+        elif sftp_file_exist(self._sftp, os.path.dirname(path)):
+            self._sftp.mkdir(path)
+        else:
+            self._make_dir_remote_recursively(os.path.dirname(path))
+
+    def _if_remote_dir(self, path):
+        try:
+            return S_ISDIR(self._sftp.stat(path).st_mode)
+        except IOError:
+            return False
+
+    def _rm_dir_remote_recursively(self, path):
+        for file in self._sftp.listdir(path):
+            filepath = os.path.join(path, file)
+            if self._if_remote_dir(filepath):
+                self._rm_dir_remote_recursively(filepath)
+            else:
+                self._sftp.remove(filepath)
+        self._sftp.rmdir(path)
 
     def synchronise_repo(self):
         """synchronise the git repo"""
+        # clear the remote path first
+        for file in self._sftp.listdir(self._remotepath):
+            filepath = os.path.join(self._remotepath, file)
+            if self._if_remote_dir(filepath):
+                self._rm_dir_remote_recursively(filepath)
+            else:
+                self._sftp.remove(filepath)
+        # substitude the repo dir
         local_files = get_repo_file_list(self._localpath)
         remote_files = replace_root(local_files, self._localpath, self._remotepath)
+        # upload all the local files
         for local_file, remote_file in zip(local_files, remote_files):
             if os.path.isdir(local_file) and not sftp_file_exist(self._sftp, remote_file):
-                self._sftp.mkdir(remote_file)
+                self._make_dir_remote_recursively(remote_file)
             if os.path.isfile(local_file):
+                self._make_dir_remote_recursively(os.path.dirname(remote_file))
                 self._sftp.put(local_file, remote_file)
 
     def synchronise_file(self, local_file):
