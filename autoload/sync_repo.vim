@@ -3,7 +3,7 @@ if !has("python3")
   finish
 endif
 
-let s:plugin_root_dir = fnamemodify(resolve(expand('<sfile>:p')), ':h')
+let s:plugin_root_dir = fnamemodify(resolve(expand('%:p')), ':h')
 
 py3 << EOF
 import sys
